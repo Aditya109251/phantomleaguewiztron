@@ -9,6 +9,48 @@ const app = express();
 
 app.use(express.json());
 
+// Initialize Database Tables
+const initDB = async () => {
+  try {
+    // Create registrations table
+    await sql`
+      CREATE TABLE IF NOT EXISTS registrations (
+        id TEXT PRIMARY KEY,
+        game TEXT NOT NULL,
+        category TEXT NOT NULL,
+        team_name TEXT,
+        player_name TEXT NOT NULL,
+        contact_number TEXT NOT NULL,
+        email TEXT NOT NULL,
+        uid TEXT NOT NULL,
+        university TEXT,
+        college TEXT,
+        roll_no TEXT,
+        branch TEXT,
+        section TEXT,
+        payment_status TEXT DEFAULT 'PENDING',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Create pictures table
+    await sql`
+      CREATE TABLE IF NOT EXISTS pictures (
+        id TEXT PRIMARY KEY,
+        url TEXT NOT NULL,
+        keyword TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+    console.log("Database tables initialized successfully.");
+  } catch (err) {
+    console.error("Database initialization error:", err);
+  }
+};
+
+// Run initialization
+initDB();
+
 // API Health Check
 app.get("/api/health", async (req, res) => {
   try {
@@ -60,7 +102,11 @@ app.post("/api/registrations", async (req, res) => {
 // Pictures Route: Get all pictures
 app.get("/api/pictures", async (req, res) => {
   try {
-    const rows = await sql`SELECT * FROM pictures ORDER BY created_at DESC`;
+    // Try with ORDER BY first
+    const rows = await sql`SELECT * FROM pictures ORDER BY created_at DESC`.catch(() => 
+      // Fallback if created_at doesn't exist
+      sql`SELECT * FROM pictures`
+    );
     res.json({ success: true, data: rows });
   } catch (err: any) {
     console.error("Error fetching pictures:", err);
