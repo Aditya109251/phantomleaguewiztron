@@ -37,12 +37,52 @@ export const RegistrationForm = () => {
     const urlParams = new URLSearchParams(window.location.search);
     const orderId = urlParams.get('order_id');
     if (orderId) {
-      setRegId(orderId);
-      setIsSuccess(true);
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
+      handlePaymentReturn(orderId);
     }
   }, []);
+
+  const handlePaymentReturn = async (orderId: string) => {
+    setRegId(orderId);
+    // Clean up URL immediately
+    window.history.replaceState({}, document.title, window.location.pathname);
+    
+    try {
+      // 1. Verify payment status with Cashfree via backend
+      const verifyResponse = await fetch(`/api/verify-payment/${orderId}`);
+      const verifyResult = await verifyResponse.json();
+      
+      if (verifyResult.success && verifyResult.status === 'PAID') {
+        setIsSuccess(true);
+        
+        // 2. Fetch registration details for email
+        const response = await fetch(`/api/registrations/${orderId}`);
+        const result = await response.json();
+        
+        if (result.success) {
+          const reg = result.data;
+          // 3. Send confirmation email
+          await fetch('/api/send-confirmation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: reg.email,
+              playerName: reg.player_name,
+              regId: reg.id,
+              game: reg.game,
+              category: reg.category,
+              teamName: reg.team_name,
+              uid: reg.uid
+            })
+          });
+        }
+      } else {
+        console.warn('Payment not verified or failed:', verifyResult.status);
+        // Optional: Show a "Payment Pending/Failed" state if needed
+      }
+    } catch (error) {
+      console.error('Error handling payment return:', error);
+    }
+  };
 
   const fetchSlotCounts = async () => {
     try {
