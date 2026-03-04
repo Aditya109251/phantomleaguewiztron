@@ -3,8 +3,15 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set in environment variables');
-}
+export const getSql = () => {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error('DATABASE_URL is not set in environment variables. Please add it to your Vercel project settings.');
+  }
+  return neon(url);
+};
 
-export const sql = neon(process.env.DATABASE_URL);
+// For backward compatibility with existing code, but using a proxy to handle errors
+export const sql = (strings: TemplateStringsArray, ...values: any[]) => {
+  return getSql()(strings, ...values);
+};
