@@ -49,6 +49,12 @@ export const RegistrationForm = () => {
     try {
       // 1. Verify payment status with Cashfree via backend
       const verifyResponse = await fetch(`/api/verify-payment/${orderId}`);
+      const contentType = verifyResponse.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await verifyResponse.text();
+        console.error('Server returned non-JSON response for payment verification:', text);
+        return;
+      }
       const verifyResult = await verifyResponse.json();
       
       if (verifyResult.success && verifyResult.status === 'PAID') {
@@ -56,6 +62,11 @@ export const RegistrationForm = () => {
         
         // 2. Fetch registration details for email
         const response = await fetch(`/api/registrations/${orderId}`);
+        const regContentType = response.headers.get("content-type");
+        if (!regContentType || !regContentType.includes("application/json")) {
+          console.error('Server returned non-JSON response for registration details');
+          return;
+        }
         const result = await response.json();
         
         if (result.success) {
@@ -87,6 +98,12 @@ export const RegistrationForm = () => {
   const fetchSlotCounts = async () => {
     try {
       const response = await fetch('/api/registrations/count');
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error('Server returned non-JSON response for slot counts:', text);
+        return;
+      }
       const result = await response.json();
       
       if (!result.success) throw new Error(result.error);
@@ -138,10 +155,15 @@ export const RegistrationForm = () => {
         })
       });
 
+      const dbContentType = dbResponse.headers.get("content-type");
+      if (!dbContentType || !dbContentType.includes("application/json")) {
+        const text = await dbResponse.text();
+        throw new Error(`Server Error: ${text.substring(0, 100)}...`);
+      }
       const dbResult = await dbResponse.json();
       if (!dbResult.success) {
         console.error('DB Error:', dbResult.error);
-        throw new Error(`Database Error: ${dbResult.error}. Please ensure your Neon DB table 'registrations' is created.`);
+        throw new Error(`Database Error: ${dbResult.error}`);
       }
 
       // 2. Create Cashfree Order
@@ -159,11 +181,12 @@ export const RegistrationForm = () => {
           })
         });
 
-        if (!cfResponse.ok) {
-          const errorData = await cfResponse.json().catch(() => ({}));
-          throw new Error(errorData.error || `Server Error: ${cfResponse.statusText}`);
+        const cfContentType = cfResponse.headers.get("content-type");
+        if (!cfContentType || !cfContentType.includes("application/json")) {
+          const text = await cfResponse.text();
+          throw new Error(`Payment Server Error: ${text.substring(0, 100)}...`);
         }
-
+        
         const cfData = await cfResponse.json();
         console.log('Cashfree API response:', cfData);
         
