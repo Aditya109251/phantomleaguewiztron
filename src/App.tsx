@@ -43,6 +43,12 @@ export default function App() {
   const fetchPictures = async () => {
     try {
       const response = await fetch('/api/pictures');
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const text = await response.text();
+        console.error('Server returned non-JSON response:', text);
+        return;
+      }
       const result = await response.json();
       if (!result.success) throw new Error(result.error);
       const data = result.data;
