@@ -1,22 +1,39 @@
 import express from "express";
 import nodemailer from "nodemailer";
-import dotenv from "dotenv";
-import { sql } from "./db";
-
-dotenv.config();
+import { neon } from '@neondatabase/serverless';
 
 const app = express();
-
 app.use(express.json());
+
+// Database Connection
+const getSql = () => {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error("DATABASE_URL is missing. Please add it to Vercel Environment Variables.");
+  }
+  return neon(url);
+};
+
+// Helper for SQL queries with better error logging
+const query = async (strings: TemplateStringsArray, ...values: any[]) => {
+  try {
+    const sql = getSql();
+    return await sql(strings, ...values);
+  } catch (err: any) {
+    console.error("SQL Query Error:", err.message);
+    throw err;
+  }
+};
 
 let isDbInitialized = false;
 
 // Initialize Database Tables
 const initDB = async () => {
-  if (isDbInitialized || !process.env.DATABASE_URL) return;
+  if (isDbInitialized) return;
   try {
+    console.log("Initializing database tables...");
     // Create registrations table
-    await sql`
+    await query`
       CREATE TABLE IF NOT EXISTS registrations (
         id TEXT PRIMARY KEY,
         game TEXT NOT NULL,
@@ -37,7 +54,7 @@ const initDB = async () => {
     `;
 
     // Create pictures table
-    await sql`
+    await query`
       CREATE TABLE IF NOT EXISTS pictures (
         id TEXT PRIMARY KEY,
         url TEXT NOT NULL,
@@ -46,32 +63,35 @@ const initDB = async () => {
       )
     `;
     isDbInitialized = true;
-    console.log("Database initialized.");
-  } catch (err) {
-    console.error("DB Init Error:", err);
+    console.log("Database initialized successfully.");
+  } catch (err: any) {
+    console.error("Database initialization error:", err.message);
   }
 };
 
-// Call initDB but don't await it at top level to avoid blocking
-initDB().catch(console.error);
+// API Health Check (No DB)
+app.get("/api/ping", (req, res) => {
+  res.json({ success: true, message: "pong", env: !!process.env.DATABASE_URL });
+});
 
-// API Health Check
+// API Health Check (With DB)
 app.get("/api/health", async (req, res) => {
   try {
-    const result = await sql`SELECT 1 as connected`;
+    await initDB();
+    const result = await query`SELECT 1 as connected`;
     res.json({ success: true, database: "connected", result });
   } catch (err: any) {
-    res.status(500).json({ success: false, database: "disconnected", error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // API Route to get slot counts
 app.get("/api/registrations/count", async (req, res) => {
   try {
-    const rows = await sql`SELECT game, category FROM registrations`;
+    await initDB();
+    const rows = await query`SELECT game, category FROM registrations`;
     res.json({ success: true, data: rows });
   } catch (err: any) {
-    console.error("Error fetching registration counts:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -80,7 +100,7 @@ app.get("/api/registrations/count", async (req, res) => {
 app.get("/api/registrations/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    const rows = await sql`SELECT * FROM registrations WHERE id = ${id}`;
+    const rows = await query`SELECT * FROM registrations WHERE id = ${id}`;
     if (rows.length === 0) {
       return res.status(404).json({ success: false, error: "Registration not found" });
     }
@@ -100,7 +120,7 @@ app.post("/api/registrations", async (req, res) => {
   } = req.body;
 
   try {
-    await sql`
+    await query`
       INSERT INTO registrations (
         id, game, category, team_name, player_name, 
         contact_number, email, uid, university, 
@@ -122,9 +142,9 @@ app.post("/api/registrations", async (req, res) => {
 app.get("/api/pictures", async (req, res) => {
   try {
     // Try with ORDER BY first
-    const rows = await sql`SELECT * FROM pictures ORDER BY created_at DESC`.catch(() => 
+    const rows = await query`SELECT * FROM pictures ORDER BY created_at DESC`.catch(() => 
       // Fallback if created_at doesn't exist
-      sql`SELECT * FROM pictures`
+      query`SELECT * FROM pictures`
     );
     res.json({ success: true, data: rows });
   } catch (err: any) {
@@ -142,7 +162,7 @@ app.post("/api/pictures", async (req, res) => {
       throw new Error("URL and Keyword are required");
     }
     const id = Math.random().toString(36).substring(2, 10);
-    await sql`INSERT INTO pictures (id, url, keyword) VALUES (${id}, ${url}, ${keyword})`;
+    await query`INSERT INTO pictures (id, url, keyword) VALUES (${id}, ${url}, ${keyword})`;
     console.log("Picture added successfully with ID:", id);
     res.json({ success: true });
   } catch (err: any) {
@@ -155,7 +175,7 @@ app.post("/api/pictures", async (req, res) => {
 app.delete("/api/pictures/:id", async (req, res) => {
   const { id } = req.params;
   try {
-    await sql`DELETE FROM pictures WHERE id = ${id}`;
+    await query`DELETE FROM pictures WHERE id = ${id}`;
     res.json({ success: true });
   } catch (err: any) {
     console.error("Error deleting picture:", err);
@@ -267,7 +287,7 @@ app.get("/api/verify-payment/:orderId", async (req, res) => {
 
     // Update status in DB if paid
     if (data.order_status === "PAID") {
-      await sql`UPDATE registrations SET payment_status = 'PAID' WHERE id = ${orderId}`;
+      await query`UPDATE registrations SET payment_status = 'PAID' WHERE id = ${orderId}`;
     }
 
     res.json({ success: true, status: data.order_status, data });
