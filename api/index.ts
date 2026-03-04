@@ -72,6 +72,21 @@ app.get("/api/registrations/count", async (req, res) => {
   }
 });
 
+// API Route to get a single registration
+app.get("/api/registrations/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const rows = await sql`SELECT * FROM registrations WHERE id = ${id}`;
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: "Registration not found" });
+    }
+    res.json({ success: true, data: rows[0] });
+  } catch (err: any) {
+    console.error("Error fetching registration:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // API Route to save registration
 app.post("/api/registrations", async (req, res) => {
   const { 
@@ -212,6 +227,48 @@ app.post("/api/create-cashfree-order", async (req, res) => {
     });
   } catch (err: any) {
     console.error("Server error creating Cashfree order:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API Route to verify Cashfree payment
+app.get("/api/verify-payment/:orderId", async (req, res) => {
+  const { orderId } = req.params;
+  const clientId = process.env.CASHFREE_CLIENT_ID;
+  const clientSecret = process.env.CASHFREE_CLIENT_SECRET;
+
+  if (!clientId || !clientSecret) {
+    return res.status(500).json({ success: false, error: "Cashfree credentials not configured" });
+  }
+
+  const isProd = process.env.CASHFREE_MODE === "production" || process.env.NODE_ENV === "production";
+  const url = isProd 
+    ? `https://api.cashfree.com/pg/orders/${orderId}` 
+    : `https://sandbox.cashfree.com/pg/orders/${orderId}`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-client-id": clientId,
+        "x-client-secret": clientSecret,
+        "x-api-version": "2023-08-01",
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return res.status(response.status).json({ success: false, error: data.message });
+    }
+
+    // Update status in DB if paid
+    if (data.order_status === "PAID") {
+      await sql`UPDATE registrations SET payment_status = 'PAID' WHERE id = ${orderId}`;
+    }
+
+    res.json({ success: true, status: data.order_status, data });
+  } catch (err: any) {
+    console.error("Error verifying payment:", err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
