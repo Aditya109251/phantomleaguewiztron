@@ -9,8 +9,11 @@ const app = express();
 
 app.use(express.json());
 
+let isDbInitialized = false;
+
 // Initialize Database Tables
 const initDB = async () => {
+  if (isDbInitialized) return;
   try {
     // Create registrations table
     await sql`
@@ -43,13 +46,20 @@ const initDB = async () => {
       )
     `;
     console.log("Database tables initialized successfully.");
+    isDbInitialized = true;
   } catch (err) {
     console.error("Database initialization error:", err);
+    // Don't set isDbInitialized to true so it retries on next request
   }
 };
 
-// Run initialization
-initDB();
+// Middleware to ensure DB is initialized
+app.use(async (req, res, next) => {
+  if (!isDbInitialized && !req.path.startsWith('/api/health')) {
+    await initDB();
+  }
+  next();
+});
 
 // API Health Check
 app.get("/api/health", async (req, res) => {
