@@ -13,7 +13,7 @@ let isDbInitialized = false;
 
 // Initialize Database Tables
 const initDB = async () => {
-  if (isDbInitialized) return;
+  if (isDbInitialized || !process.env.DATABASE_URL) return;
   try {
     // Create registrations table
     await sql`
@@ -45,21 +45,15 @@ const initDB = async () => {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       )
     `;
-    console.log("Database tables initialized successfully.");
     isDbInitialized = true;
+    console.log("Database initialized.");
   } catch (err) {
-    console.error("Database initialization error:", err);
-    // Don't set isDbInitialized to true so it retries on next request
+    console.error("DB Init Error:", err);
   }
 };
 
-// Middleware to ensure DB is initialized
-app.use(async (req, res, next) => {
-  if (!isDbInitialized && !req.path.startsWith('/api/health')) {
-    await initDB();
-  }
-  next();
-});
+// Call initDB but don't await it at top level to avoid blocking
+initDB().catch(console.error);
 
 // API Health Check
 app.get("/api/health", async (req, res) => {
